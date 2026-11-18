@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Mitakihara Labyrinth Arcade v1.0.0 — Zero-Float Casual Shooter</title>
+  <title>Mitakihara Labyrinth Arcade v1.1.0 — Zero-Float Bullet Hell</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
-    <h1>✨ Mitakihara Labyrinth Arcade <span class="badge">v1.0.0 Q16.16</span></h1>
+    <h1>✨ Mitakihara Labyrinth Arcade <span class="badge">v1.1.0 Q16.16</span></h1>
     <div class="top-stats">
       <span id="hud-char">Madoka Kaname</span>
+      <span id="hud-diff">Mode: Standard (1x)</span>
       <span id="hud-wave">Wave: 1</span>
       <span id="hud-score">Score: 0</span>
     </div>
@@ -52,6 +53,14 @@
         <button id="btn-overdrive" class="overdrive-btn">Toggle Rebellion Overdrive</button>
         <button id="btn-audio">Audio: Muted</button>
         <button id="btn-restart">Restart Run</button>
+      </div>
+
+      <h3>Difficulty Tier</h3>
+      <div class="roster-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 0.75rem;">
+        <button data-difficulty="casual">Casual (1x)</button>
+        <button data-difficulty="standard">Standard (1x)</button>
+        <button data-difficulty="nightmare">Nightmare (2x)</button>
+        <button data-difficulty="walpurgisnacht" class="overdrive-btn">Walpurgisnacht (3x)</button>
       </div>
 
       <h3>Select Magical Girl</h3>
