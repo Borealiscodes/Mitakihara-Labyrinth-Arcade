@@ -199,8 +199,8 @@ function initArcade() {
 
   const audioBtn = document.getElementById("btn-audio");
   audioBtn?.addEventListener("click", () => {
-    const muted = audio.toggleMute();
-    audioBtn.textContent = muted ? "Audio: Muted" : "Audio: Techno + SFX Active";
+    const mode = audio.cycleMode();
+    audioBtn.textContent = mode === "symphonic" ? "Audio: Symphonic Waltz" : mode === "techno" ? "Audio: Dark Techno" : "Audio: Muted";
   });
 
   function stepSimulation() {
@@ -215,7 +215,6 @@ function initArcade() {
     if (p.timeStopTicks > 0) p.timeStopTicks--;
     if (p.cooldownTicks > 0) p.cooldownTicks--;
 
-    // 1. Player Movement
     let dirX = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
     let dirY = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
 
@@ -234,7 +233,6 @@ function initArcade() {
     p.xQ16 = clampQ16(movedPlayer.xQ16, toQ16(18), toQ16(ARENA_W - 18));
     p.yQ16 = clampQ16(movedPlayer.yQ16, toQ16(24), toQ16(ARENA_H - 18));
 
-    // 2. Continuous Auto-Fire
     if (p.cooldownTicks === 0) {
       state.shots.push(...spawnPlayerShots(p));
       p.cooldownTicks = spec.fireCooldownTicks;
@@ -243,7 +241,6 @@ function initArcade() {
       }
     }
 
-    // 3. Boss Witch vs Standard Familiar Wave Spawning
     if (state.boss) {
       if (p.timeStopTicks === 0) {
         const nextBoss = stepPositionQ16(state.boss);
@@ -265,7 +262,6 @@ function initArcade() {
       }
     }
 
-    // Passive Despair accumulation scaled by difficulty + Rebellion Overdrive
     if (state.tick % diff.despairTickInterval === 0) {
       p.despairCorrupt = Math.min(100, p.despairCorrupt + (p.rebellionOverdrive ? 2 : 1));
       if (p.despairCorrupt >= 100) {
@@ -273,10 +269,13 @@ function initArcade() {
       }
     }
 
-    // 4. Advance Projectiles & Enemy Bullets
     state.shots = state.shots
       .map(stepPositionQ16)
-      .filter((s) => fromQ16(s.yQ16) > -20 && fromQ16(s.xQ16) > -20 && fromQ16(s.xQ16) < ARENA_W + 20);
+      .filter((s) => {
+        const sx = fromQ16(s.xQ16);
+        const sy = fromQ16(s.yQ16);
+        return sy > -20 && sx > -20 && sx < ARENA_W + 20;
+      });
 
     if (p.timeStopTicks === 0) {
       state.familiars = state.familiars
@@ -290,10 +289,88 @@ function initArcade() {
 
       state.enemyBullets = state.enemyBullets
         .map(stepPositionQ16)
-        .filter(
-          (eb) =>
-            fromQ16(eb.yQ16) > -20 &&
-            fromQ16(eb.yQ16) < ARENA_H + 20 &&
+        .filter((eb) => {
+          const ex = fromQ16(eb.xQ16);
+          const ey = fromQ16(eb.yQ16);
+          return ey > -20 && ey < ARENA_H + 20 && ex > -20 && ex < ARENA_W + 20;
+        });
+    }
+
+    state.griefSeeds = state.griefSeeds
+      .map(stepPositionQ16)
+
+.filter((seed) => fromQ16(seed.yQ16) < ARENA_H + 20);
+const survivingShots = [];
+for (const shot of state.shots) {
+let hit = false;
+if (state.boss && state.boss.hp > 0 && checkCircleCollisionQ16(shot, state.boss)) {
+state.boss.hp -= shot.damage;
+hit = true;
+p.hopeMana = Math.min(p.maxHopeMana, p.hopeMana + 1);
+}
+if (!hit) {
+for (const fam of state.familiars) {
+if (fam.hp > 0 && checkCircleCollisionQ16(shot, fam)) {
+fam.hp -= shot.damage;
+hit = true;
+if (fam.hp <= 0) {
+audio.playPop();
+state.score += fam.scoreValue;
+state.killsInWave++;
+p.hopeMana = Math.min(p.maxHopeMana, p.hopeMana + (fam.isElite ? 16 : 6));
+if (fam.isElite || rng() % 3 === 0) {
+state.griefSeeds.push(spawnGriefSeed(fam.xQ16, fam.yQ16, fam.isElite));
+}
+}
+break;
+}
+}
+}
+if (!hit) survivingShots.push(shot);
+}
+state.shots = survivingShots;
+state.familiars = state.familiars.filter((f) => f.hp > 0);
+if (!state.boss && state.killsInWave >= 8 + state.wave * 3) {
+state.wave++;
+state.killsInWave = 0;
+if (state.wave % 5 === 0) {
+state.boss = spawnBossWitch(state.wave, ARENA_W, diff);
+state.familiars = [];
+audio.setBossMode(true);
+audio.playBossWarning();
+}
+}
+if (state.boss && state.boss.hp <= 0) {
+const defeated = state.boss;
+state.score += defeated.scoreValue;
+audio.setBossMode(false);
+audio.playUltimate();
+for (let i = -2; i <= 2; i++) {
+state.griefSeeds.push(
+spawnGriefSeed(defeated.xQ16 + toQ16(i * 22), defeated.yQ16, true)
+);
+}
+state.boss = null;
+state.enemyBullets = [];
+state.wave++;
+state.killsInWave = 0;
+}
+state.griefSeeds = state.griefSeeds.filter((seed) => {
+if (checkCircleCollisionQ16(p, seed)) {
+audio.playSeed();
+p.despairCorrupt = Math.max(0, p.despairCorrupt - seed.despairClear);
+p.hopeMana = Math.min(p.maxHopeMana, p.hopeMana + seed.hopeGain);
+p.purityHp = Math.min(p.maxPurityHp, p.purityHp + 5);
+state.score += 50 * diff.scoreMult;
+return false;
+}
+return true;
+});
+if (p.invulnTicks === 0 && p.timeStopTicks === 0) {
+for (const fam of state.familiars) {
+if (checkCircleCollisionQ16(p, fam)) {
+audio.playHit();
+p.purityHp = Math.max(0, p.purityHp - (fam.isElite ? 28 : 16));
 p.despairCorrupt = Math.min(100, p.despairCorrupt + 10);
 p.invulnTicks = 60;
 break;
