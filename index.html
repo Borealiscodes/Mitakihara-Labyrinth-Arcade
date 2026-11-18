@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Mitakihara Labyrinth Arcade — Zero-Float Casual Shooter</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>✨ Mitakihara Labyrinth Arcade <span class="badge">Q16.16 60Hz</span></h1>
+    <div class="top-stats">
+      <span id="hud-char">Madoka Kaname</span>
+      <span id="hud-wave">Wave: 1</span>
+      <span id="hud-score">Score: 0</span>
+    </div>
+  </header>
+
+  <main class="arcade-layout">
+    <section class="stage-panel">
+      <canvas id="arcade-canvas" width="560" height="480"></canvas>
+      <p class="hint">Touch &amp; drag anywhere on the arena (or use WASD / Arrows) to dodge &bull; Auto-fire active</p>
+    </section>
+
+    <section class="hud-panel">
+      <div class="meter-group">
+        <div class="meter-label">
+          <span>Soul Gem Purity (HP)</span>
+          <span id="val-purity">100 / 100</span>
+        </div>
+        <div class="meter-track"><div id="bar-purity" class="meter-fill purity"></div></div>
+      </div>
+
+      <div class="meter-group">
+        <div class="meter-label">
+          <span>Hope Energy (Ultimate)</span>
+          <span id="val-hope">60 / 100</span>
+        </div>
+        <div class="meter-track"><div id="bar-hope" class="meter-fill hope"></div></div>
+      </div>
+
+      <div class="meter-group">
+        <div class="meter-label">
+          <span>Despair Corruption (Collect Grief Seeds)</span>
+          <span id="val-despair">0%</span>
+        </div>
+        <div class="meter-track"><div id="bar-despair" class="meter-fill despair"></div></div>
+      </div>
+
+      <div class="action-buttons">
+        <button id="btn-ultimate" class="ult-btn" disabled>Ultimate (60/100 Hope)</button>
+        <button id="btn-overdrive" class="overdrive-btn">Toggle Rebellion Overdrive</button>
+        <button id="btn-restart">Restart Run</button>
+      </div>
+
+      <h3>Select Magical Girl</h3>
+      <div class="roster-grid">
+        <button data-roster="madoka">Madoka</button>
+        <button data-roster="homura">Homura</button>
+        <button data-roster="mami">Mami</button>
+        <button data-roster="kyoko">Kyoko</button>
+        <button data-roster="sayaka">Sayaka</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="src/arcade-app.js"></script>
+</body>
+</html>
