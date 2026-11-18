@@ -117,6 +117,46 @@ export const BOSS_ROSTER = [
   },
 ];
 
+export const DIFFICULTY_MODES = {
+  casual: {
+    id: "casual",
+    label: "Casual",
+    enemySpeedMultQ16: toQ16(0.8),
+    enemyHpMult: 0.85,
+    spawnIntervalOffset: 10,
+    despairTickInterval: 55,
+    scoreMult: 1,
+  },
+  standard: {
+    id: "standard",
+    label: "Standard",
+    enemySpeedMultQ16: toQ16(1.0),
+    enemyHpMult: 1.0,
+    spawnIntervalOffset: 0,
+    despairTickInterval: 45,
+    scoreMult: 1,
+  },
+  nightmare: {
+    id: "nightmare",
+    label: "Nightmare",
+    enemySpeedMultQ16: toQ16(1.35),
+    enemyHpMult: 1.35,
+    spawnIntervalOffset: -10,
+    despairTickInterval: 32,
+    scoreMult: 2,
+  },
+  walpurgisnacht: {
+    id: "walpurgisnacht",
+    label: "Walpurgisnacht",
+    enemySpeedMultQ16: toQ16(1.65),
+    enemyHpMult: 1.75,
+    spawnIntervalOffset: -16,
+    despairTickInterval: 22,
+    scoreMult: 3,
+  },
+};
+
+
 export function createPlayerState(charId = "madoka", arenaWidth = 560, arenaHeight = 480) {
   const spec = CHARACTER_ROSTER[charId] || CHARACTER_ROSTER.madoka;
   return {
@@ -185,22 +225,24 @@ export function spawnPlayerShots(player) {
   return shots;
 }
 
-export function spawnFamiliar(rngNext, waveNumber, arenaWidth = 560) {
+export function spawnFamiliar(rngNext, waveNumber, arenaWidth = 560, diff = DIFFICULTY_MODES.standard) {
   const rollX = (rngNext() % (arenaWidth - 64)) + 32;
   const driftRoll = (rngNext() % 120) - 60;
   const fallSpeed = 65 + Math.min(110, waveNumber * 8);
   const isElite = waveNumber >= 2 && rngNext() % 5 === 0;
+  const rawHp = isElite ? 55 + waveNumber * 10 : 22 + waveNumber * 4;
+  const scaledHp = Math.max(10, Math.round(rawHp * diff.enemyHpMult));
 
   return {
     xQ16: toQ16(rollX),
     yQ16: toQ16(-16),
-    vxQ16: toQ16(driftRoll),
-    vyQ16: toQ16(fallSpeed),
+    vxQ16: qMul(toQ16(driftRoll), diff.enemySpeedMultQ16),
+    vyQ16: qMul(toQ16(fallSpeed), diff.enemySpeedMultQ16),
     radiusQ16: toQ16(isElite ? 16.0 : 11.0),
-    hp: isElite ? 55 + waveNumber * 10 : 22 + waveNumber * 4,
-    maxHp: isElite ? 55 + waveNumber * 10 : 22 + waveNumber * 4,
+    hp: scaledHp,
+    maxHp: scaledHp,
     isElite,
-    scoreValue: isElite ? 350 : 100,
+    scoreValue: (isElite ? 350 : 100) * diff.scoreMult,
   };
 }
 
@@ -220,23 +262,26 @@ export function spawnGriefSeed(xQ16, yQ16, isMajor = false) {
 /**
  * Instantiate a Boss Witch encounter at waves 5, 10, 15, etc.
  */
-export function spawnBossWitch(waveNumber, arenaWidth = 560) {
+export function spawnBossWitch(waveNumber, arenaWidth = 560, diff = DIFFICULTY_MODES.standard) {
   const tierIdx = Math.min(BOSS_ROSTER.length - 1, Math.floor(waveNumber / 5) - 1);
   const template = BOSS_ROSTER[Math.max(0, tierIdx)];
   const cycleScale = 1 + Math.floor(Math.max(0, waveNumber - 15) / 5);
-  const totalHp = template.baseHp * cycleScale;
+  const totalHp = Math.round(template.baseHp * cycleScale * diff.enemyHpMult);
 
   return {
     ...template,
     xQ16: toQ16(arenaWidth / 2),
     yQ16: toQ16(78.0),
-    vxQ16: template.sweepSpeedQ16,
+    vxQ16: qMul(template.sweepSpeedQ16, diff.enemySpeedMultQ16),
     vyQ16: 0,
+    bulletSpeedQ16: qMul(template.bulletSpeedQ16, diff.enemySpeedMultQ16),
+    fireInterval: Math.max(14, Math.round(template.fireInterval / (diff.id === "walpurgisnacht" ? 1.35 : 1.0))),
     hp: totalHp,
     maxHp: totalHp,
+    scoreValue: template.scoreValue * diff.scoreMult,
     spiralAngleIdx: 0,
   };
-}
+                                        }
 
 /**
  * Generate deterministic Q16.16 enemy projectiles from an active Boss Witch.
