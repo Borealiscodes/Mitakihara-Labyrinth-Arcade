@@ -1,7 +1,8 @@
 /**
- * src/arcade-renderer.js — 2D Canvas Arcade Viewport Renderer (Ledger 2)
+ * src/arcade-renderer.js — 2D Canvas Arcade Viewport Renderer (v1.0.0)
  * Draws warped labyrinth backdrop rings, Magical Girl avatar + Soul Gem core,
- * magic projectiles, Witch Familiars, and Grief Seed pickups.
+ * player magic projectiles, Witch Familiars, Boss Witch barrier core + HP bar,
+ * enemy projectiles, and Grief Seed pickups.
  *
  * Signed-off-by: Borealis Serenity Hedling <chguard-sentinel@vaked.dev>
  */
@@ -75,7 +76,6 @@ export function renderArcadeFrame(ctx, state) {
     ctx.arc(fx, fy, fr, 0, Math.PI * 2);
     ctx.fill();
 
-    // Inner barrier rune ring
     ctx.strokeStyle = frozen ? "#c084fc" : "#fef08a";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -83,13 +83,73 @@ export function renderArcadeFrame(ctx, state) {
     ctx.stroke();
   }
 
-  // 5. Render Player Avatar & Soul Gem Core Hitbox
+  // 5. Render Boss Witch Encounter & Top Health Bar
+  if (state.boss) {
+    const b = state.boss;
+    const bx = fromQ16(b.xQ16);
+    const by = fromQ16(b.yQ16);
+    const br = fromQ16(b.radiusQ16);
+
+    // Outer rotating labyrinth sigil ring
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(state.tick * 0.03);
+    ctx.strokeStyle = b.ringColor;
+    ctx.lineWidth = 2.2;
+    ctx.strokeRect(-br * 0.85, -br * 0.85, br * 1.7, br * 1.7);
+    ctx.restore();
+
+    // Inner Witch core
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(bx, by, br * 0.45, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Top Boss HP Bar
+    const barW = width - 48;
+    const hpRatio = Math.max(0, Math.min(1, b.hp / b.maxHp));
+    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+    ctx.fillRect(24, 14, barW, 18);
+    ctx.fillStyle = b.color;
+    ctx.fillRect(24, 14, barW * hpRatio, 18);
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(24, 14, barW, 18);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 11px monospace";
+    ctx.fillText(`${b.name} (${Math.max(0, b.hp)} / ${b.maxHp})`, 30, 27);
+  }
+
+  // 6. Render Enemy Projectiles
+  for (const eb of state.enemyBullets) {
+    const ex = fromQ16(eb.xQ16);
+    const ey = fromQ16(eb.yQ16);
+    const er = fromQ16(eb.radiusQ16);
+
+    ctx.fillStyle = eb.color || "#f43f5e";
+    ctx.beginPath();
+    ctx.arc(ex, ey, er, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(ex, ey, er * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 7. Render Player Avatar & Soul Gem Core Hitbox
   const px = fromQ16(player.xQ16);
   const py = fromQ16(player.yQ16);
   const pr = fromQ16(player.radiusQ16);
 
-  // Blink during post-hit invulnerability frames
-  if (player.invulnTicks === 0 || (player.invulnTicks % 6) < 3) {
+  if (player.invulnTicks === 0 || player.invulnTicks % 6 < 3) {
     ctx.fillStyle = spec.color;
     ctx.beginPath();
     ctx.moveTo(px, py - pr - 6);
@@ -98,14 +158,12 @@ export function renderArcadeFrame(ctx, state) {
     ctx.closePath();
     ctx.fill();
 
-    // Soul Gem core hitbox dot
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.arc(px, py + 1, 3.5, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // Overdrive aura ring
   if (inverted) {
     ctx.strokeStyle = "#f43f5e";
     ctx.lineWidth = 2;
@@ -114,7 +172,7 @@ export function renderArcadeFrame(ctx, state) {
     ctx.stroke();
   }
 
-  // 6. Game Over Overlay
+  // 8. Game Over Overlay
   if (state.gameOver) {
     ctx.fillStyle = "rgba(5, 8, 18, 0.78)";
     ctx.fillRect(0, 0, width, height);
