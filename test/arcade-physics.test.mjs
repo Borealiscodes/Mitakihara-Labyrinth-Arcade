@@ -1,5 +1,5 @@
 /**
- * test/arcade-physics.test.mjs — Deterministic Arcade Physics, Hitbox & Boss Tests (v1.0.0)
+ * test/arcade-physics.test.mjs — Deterministic Arcade Physics, Boss & Difficulty Tests (v1.1.0)
  * Run: node --test test/arcade-physics.test.mjs
  *
  * Signed-off-by: Borealis Serenity Hedling <chguard-sentinel@vaked.dev>
@@ -16,6 +16,8 @@ import {
   checkCircleCollisionQ16,
 } from "../src/arcade-physics.js";
 import {
+  DIFFICULTY_MODES,
+  spawnFamiliar,
   spawnBossWitch,
   spawnBossProjectiles,
 } from "../src/arcade-entities.js";
@@ -73,4 +75,20 @@ test("4. Boss Witch Roster & Deterministic Q16.16 Bullet Rings (v1.0.0)", () => 
   const walpurgis = spawnBossWitch(15, 560);
   assert.equal(walpurgis.id, "walpurgisnacht");
   assert.equal(spawnBossProjectiles(walpurgis).length, 16);
+});
+
+test("5. Four-Tier Difficulty Scaling & HP/Speed Multipliers (v1.1.0)", () => {
+  const rngCasual = createSeededRng(0x999);
+  const rngWalpurgis = createSeededRng(0x999);
+
+  const famCasual = spawnFamiliar(rngCasual, 3, 560, DIFFICULTY_MODES.casual);
+  const famWalpurgis = spawnFamiliar(rngWalpurgis, 3, 560, DIFFICULTY_MODES.walpurgisnacht);
+
+  assert.ok(famWalpurgis.hp > famCasual.hp, "Walpurgisnacht familiars must have higher HP");
+  assert.ok(famWalpurgis.vyQ16 > famCasual.vyQ16, "Walpurgisnacht familiars must move faster");
+  assert.equal(DIFFICULTY_MODES.walpurgisnacht.scoreMult, 3);
+
+  const bossNightmare = spawnBossWitch(5, 560, DIFFICULTY_MODES.nightmare);
+  assert.equal(bossNightmare.hp, Math.round(900 * 1.35));
+  assert.equal(bossNightmare.scoreValue, 10000);
 });
