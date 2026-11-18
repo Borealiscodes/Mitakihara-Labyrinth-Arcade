@@ -1,5 +1,5 @@
 /**
- * test/arcade-physics.test.mjs — Deterministic Arcade Physics & Hitbox Tests
+ * test/arcade-physics.test.mjs — Deterministic Arcade Physics, Hitbox & Boss Tests (v1.0.0)
  * Run: node --test test/arcade-physics.test.mjs
  *
  * Signed-off-by: Borealis Serenity Hedling <chguard-sentinel@vaked.dev>
@@ -15,9 +15,13 @@ import {
   velocityFromInputQ16,
   checkCircleCollisionQ16,
 } from "../src/arcade-physics.js";
+import {
+  spawnBossWitch,
+  spawnBossProjectiles,
+} from "../src/arcade-entities.js";
 
 test("1. 60 Hz Symplectic Step & Diagonal Speed Normalization", () => {
-  const speed = toQ16(240.0); // 240 px/sec -> 4 px/tick
+  const speed = toQ16(240.0);
   const cardinal = velocityFromInputQ16(1, 0, speed);
   assert.equal(cardinal.vxQ16, speed);
   assert.equal(cardinal.vyQ16, 0);
@@ -30,7 +34,6 @@ test("1. 60 Hz Symplectic Step & Diagonal Speed Normalization", () => {
   });
   assert.ok(Math.abs(fromQ16(player.xQ16) - 104.0) < 0.02);
 
-  // Diagonal movement scales by 1/sqrt(2) so diagonal speed does not exceed cardinal speed
   const diag = velocityFromInputQ16(1, 1, speed);
   assert.ok(diag.vxQ16 < speed && diag.vxQ16 > toQ16(169.0));
 });
@@ -51,4 +54,23 @@ test("3. Arena Clamping & Deterministic Spawn RNG", () => {
   const rng1 = createSeededRng(0xabc123);
   const rng2 = createSeededRng(0xabc123);
   assert.equal(rng1(), rng2());
+});
+
+test("4. Boss Witch Roster & Deterministic Q16.16 Bullet Rings (v1.0.0)", () => {
+  const charlotte = spawnBossWitch(5, 560);
+  assert.equal(charlotte.id, "charlotte");
+  assert.equal(charlotte.hp, 900);
+
+  const ringBullets = spawnBossProjectiles(charlotte);
+  assert.equal(ringBullets.length, 8);
+  assert.ok(Number.isInteger(ringBullets[0].vxQ16));
+  assert.ok(Number.isInteger(ringBullets[0].vyQ16));
+
+  const oktavia = spawnBossWitch(10, 560);
+  assert.equal(oktavia.id, "oktavia");
+  assert.equal(spawnBossProjectiles(oktavia).length, 4);
+
+  const walpurgis = spawnBossWitch(15, 560);
+  assert.equal(walpurgis.id, "walpurgisnacht");
+  assert.equal(spawnBossProjectiles(walpurgis).length, 16);
 });
