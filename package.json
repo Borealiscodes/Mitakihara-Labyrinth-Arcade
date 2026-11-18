@@ -1,0 +1,10 @@
+{
+  "name": "mitakihara-labyrinth-arcade",
+  "version": "0.1.0",
+  "description": "Zero-float Q16.16 casual magical-girl labyrinth arcade shooter.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/arcade-physics.test.mjs"
+  },
+  "license": "MIT"
+}
