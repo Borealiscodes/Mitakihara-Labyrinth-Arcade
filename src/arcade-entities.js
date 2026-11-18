@@ -1,12 +1,16 @@
 /**
- * src/arcade-entities.js — Playable Roster, Familiar Waves & Grief Seed Drops
+ * src/arcade-entities.js — Playable Roster, Boss Witches, Familiars & Grief Seeds
  * Translates 4D Q16.16 channels [Hope, Despair, Purity, Entropy] into arcade stats,
- * character-specific projectile bursts, and Witch Familiar wave spawning.
+ * deterministic 16-angle Q16.16 boss bullet patterns, and Grief Seed drops.
  *
  * Signed-off-by: Borealis Serenity Hedling <chguard-sentinel@vaked.dev>
  */
 
-import { Q_ONE, toQ16 } from "./core.js";
+import { Q_ONE, qMul, toQ16 } from "./core.js";
+
+// Precomputed 16-angle unit circle lookup table in Q16.16 (zero runtime floats)
+const SIN_16_Q16 = Array.from({ length: 16 }, (_, i) => toQ16(Math.sin((i * Math.PI * 2) / 16)));
+const COS_16_Q16 = Array.from({ length: 16 }, (_, i) => toQ16(Math.cos((i * Math.PI * 2) / 16)));
 
 export const CHARACTER_ROSTER = {
   madoka: {
@@ -18,7 +22,7 @@ export const CHARACTER_ROSTER = {
     fireCooldownTicks: 10,
     shotSpeedQ16: toQ16(520.0),
     shotDamage: 14,
-    spreadCount: 3, // Rosebud triple-arrow spread
+    spreadCount: 3,
     ultimateName: "Law of Cycles (Screen Purge)",
   },
   homura: {
@@ -30,7 +34,7 @@ export const CHARACTER_ROSTER = {
     fireCooldownTicks: 7,
     shotSpeedQ16: toQ16(620.0),
     shotDamage: 11,
-    spreadCount: 1, // Rapid precision rounds + Time-Stop ultimate
+    spreadCount: 1,
     ultimateName: "Shield Time-Stop (Freeze 4s)",
   },
   mami: {
@@ -42,7 +46,7 @@ export const CHARACTER_ROSTER = {
     fireCooldownTicks: 14,
     shotSpeedQ16: toQ16(560.0),
     shotDamage: 24,
-    spreadCount: 2, // Twin flintlock volley + Tiro Finale beam
+    spreadCount: 2,
     ultimateName: "Tiro Finale (Heavy Cannon)",
   },
   kyoko: {
@@ -54,7 +58,7 @@ export const CHARACTER_ROSTER = {
     fireCooldownTicks: 11,
     shotSpeedQ16: toQ16(500.0),
     shotDamage: 18,
-    spreadCount: 2, // Chain-spear twin arc
+    spreadCount: 2,
     ultimateName: "Rosso Fantasma (Barrier Nova)",
   },
   sayaka: {
@@ -66,14 +70,53 @@ export const CHARACTER_ROSTER = {
     fireCooldownTicks: 8,
     shotSpeedQ16: toQ16(540.0),
     shotDamage: 13,
-    spreadCount: 2, // Twin blade crescent waves
+    spreadCount: 2,
     ultimateName: "Fortissimo Surge (Rapid Regen)",
   },
 };
 
-/**
- * Create initial player state in Q16.16 coordinates.
- */
+export const BOSS_ROSTER = [
+  {
+    id: "charlotte",
+    name: "Charlotte — Dessert Witch",
+    color: "#f472b6",
+    ringColor: "#fde047",
+    baseHp: 900,
+    radiusQ16: toQ16(28.0),
+    sweepSpeedQ16: toQ16(95.0),
+    fireInterval: 48,
+    bulletSpeedQ16: toQ16(155.0),
+    pattern: "ring",
+    scoreValue: 5000,
+  },
+  {
+    id: "oktavia",
+    name: "Oktavia von Seckendorff — Mermaid Witch",
+    color: "#38bdf8",
+    ringColor: "#818cf8",
+    baseHp: 1450,
+    radiusQ16: toQ16(32.0),
+    sweepSpeedQ16: toQ16(120.0),
+    fireInterval: 22,
+    bulletSpeedQ16: toQ16(175.0),
+    pattern: "spiral",
+    scoreValue: 8500,
+  },
+  {
+    id: "walpurgisnacht",
+    name: "Walpurgisnacht — Stage-Constructing Witch",
+    color: "#c084fc",
+    ringColor: "#f43f5e",
+    baseHp: 2400,
+    radiusQ16: toQ16(38.0),
+    sweepSpeedQ16: toQ16(140.0),
+    fireInterval: 34,
+    bulletSpeedQ16: toQ16(195.0),
+    pattern: "supercell",
+    scoreValue: 15000,
+  },
+];
+
 export function createPlayerState(charId = "madoka", arenaWidth = 560, arenaHeight = 480) {
   const spec = CHARACTER_ROSTER[charId] || CHARACTER_ROSTER.madoka;
   return {
@@ -83,11 +126,11 @@ export function createPlayerState(charId = "madoka", arenaWidth = 560, arenaHeig
     vxQ16: 0,
     vyQ16: 0,
     radiusQ16: toQ16(10.0),
-    purityHp: 100,       // Soul Gem Purity (0..100 HP)
+    purityHp: 100,
     maxPurityHp: 100,
-    hopeMana: 60,        // Hope Energy (0..100, powers Ultimate)
+    hopeMana: 60,
     maxHopeMana: 100,
-    despairCorrupt: 0,   // Despair Corruption (0..100, vented by Grief Seeds)
+    despairCorrupt: 0,
     cooldownTicks: 0,
     invulnTicks: 0,
     timeStopTicks: 0,
@@ -95,9 +138,6 @@ export function createPlayerState(charId = "madoka", arenaWidth = 560, arenaHeig
   };
 }
 
-/**
- * Spawn player projectiles based on active character spread pattern.
- */
 export function spawnPlayerShots(player) {
   const spec = CHARACTER_ROSTER[player.charId] || CHARACTER_ROSTER.madoka;
   const shots = [];
@@ -145,14 +185,11 @@ export function spawnPlayerShots(player) {
   return shots;
 }
 
-/**
- * Spawn a Witch Familiar enemy using the deterministic Mulberry32 PRNG.
- */
 export function spawnFamiliar(rngNext, waveNumber, arenaWidth = 560) {
   const rollX = (rngNext() % (arenaWidth - 64)) + 32;
-  const driftRoll = ((rngNext() % 120) - 60);
+  const driftRoll = (rngNext() % 120) - 60;
   const fallSpeed = 65 + Math.min(110, waveNumber * 8);
-  const isElite = waveNumber >= 2 && (rngNext() % 5 === 0);
+  const isElite = waveNumber >= 2 && rngNext() % 5 === 0;
 
   return {
     xQ16: toQ16(rollX),
@@ -167,9 +204,6 @@ export function spawnFamiliar(rngNext, waveNumber, arenaWidth = 560) {
   };
 }
 
-/**
- * Spawn a collectible Grief Seed pickup when a Familiar is purified.
- */
 export function spawnGriefSeed(xQ16, yQ16, isMajor = false) {
   return {
     xQ16,
@@ -181,4 +215,83 @@ export function spawnGriefSeed(xQ16, yQ16, isMajor = false) {
     despairClear: isMajor ? 35 : 15,
     hopeGain: isMajor ? 25 : 10,
   };
+}
+
+/**
+ * Instantiate a Boss Witch encounter at waves 5, 10, 15, etc.
+ */
+export function spawnBossWitch(waveNumber, arenaWidth = 560) {
+  const tierIdx = Math.min(BOSS_ROSTER.length - 1, Math.floor(waveNumber / 5) - 1);
+  const template = BOSS_ROSTER[Math.max(0, tierIdx)];
+  const cycleScale = 1 + Math.floor(Math.max(0, waveNumber - 15) / 5);
+  const totalHp = template.baseHp * cycleScale;
+
+  return {
+    ...template,
+    xQ16: toQ16(arenaWidth / 2),
+    yQ16: toQ16(78.0),
+    vxQ16: template.sweepSpeedQ16,
+    vyQ16: 0,
+    hp: totalHp,
+    maxHp: totalHp,
+    spiralAngleIdx: 0,
+  };
+}
+
+/**
+ * Generate deterministic Q16.16 enemy projectiles from an active Boss Witch.
+ */
+export function spawnBossProjectiles(boss) {
+  const bullets = [];
+  const speed = boss.bulletSpeedQ16;
+
+  if (boss.pattern === "ring") {
+    // 12-way radial burst (every 1st/2nd step on 16-angle circle)
+    for (let i = 0; i < 16; i += 2) {
+      bullets.push({
+        xQ16: boss.xQ16,
+        yQ16: boss.yQ16,
+        vxQ16: qMul(speed, COS_16_Q16[i]),
+        vyQ16: qMul(speed, SIN_16_Q16[i]),
+        radiusQ16: toQ16(5.5),
+        damage: 14,
+        color: boss.ringColor,
+      });
+    }
+  } else if (boss.pattern === "spiral") {
+    // 4-arm rotating spiral harmonic stream
+    const base = boss.spiralAngleIdx & 15;
+    boss.spiralAngleIdx = (boss.spiralAngleIdx + 1) & 15;
+    for (let arm = 0; arm < 4; arm++) {
+      const idx = (base + arm * 4) & 15;
+      bullets.push({
+        xQ16: boss.xQ16,
+        yQ16: boss.yQ16,
+        vxQ16: qMul(speed, COS_16_Q16[idx]),
+        vyQ16: qMul(speed, SIN_16_Q16[idx]),
+        radiusQ16: toQ16(5.0),
+        damage: 15,
+        color: boss.ringColor,
+      });
+    }
+  } else {
+    // Walpurgisnacht supercell: alternating full 16-ring and rotating spiral
+    const step = (boss.spiralAngleIdx & 1) === 0 ? 1 : 2;
+    const offset = boss.spiralAngleIdx & 15;
+    boss.spiralAngleIdx = (boss.spiralAngleIdx + 1) & 15;
+    for (let i = 0; i < 16; i += step) {
+      const idx = (i + offset) & 15;
+      bullets.push({
+        xQ16: boss.xQ16,
+        yQ16: boss.yQ16,
+        vxQ16: qMul(speed, COS_16_Q16[idx]),
+        vyQ16: qMul(speed, SIN_16_Q16[idx]),
+        radiusQ16: toQ16(5.5),
+        damage: 18,
+        color: boss.ringColor,
+      });
+    }
+  }
+
+  return bullets;
 }
