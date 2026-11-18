@@ -1,7 +1,7 @@
 /**
- * src/arcade-app.js — 60 Hz Arcade Game Loop, Touch-Drag Steering & Input Dispatcher
+ * src/arcade-app.js — 60 Hz Arcade Loop, Boss Witch Encounters & Retro Audio (v1.0.0)
  * Connects zero-float Q16.16 kinematics and collision checks with touch/keyboard
- * controls, character roster switching, Grief Seed pickups, and Ultimate abilities.
+ * controls, every-5-wave Boss Witch fights, Grief Seed drops, and WebAudio SFX.
  *
  * Signed-off-by: Borealis Serenity Hedling <chguard-sentinel@vaked.dev>
  */
@@ -19,9 +19,12 @@ import {
   spawnPlayerShots,
   spawnFamiliar,
   spawnGriefSeed,
+  spawnBossWitch,
+  spawnBossProjectiles,
 } from "./arcade-entities.js";
 import { renderArcadeFrame } from "./arcade-renderer.js";
 import { updateArcadeHud } from "./arcade-ui.js";
+import { createArcadeAudio } from "./arcade-audio.js";
 
 const FIXED_DT_MS = 1000 / 60;
 const ARENA_W = 560;
@@ -30,6 +33,7 @@ const ARENA_H = 480;
 function initArcade() {
   const canvas = document.getElementById("arcade-canvas");
   const ctx = canvas ? canvas.getContext("2d") : null;
+  const audio = createArcadeAudio();
 
   const hudEls = {
     scoreLabel: document.getElementById("hud-score"),
@@ -46,7 +50,6 @@ function initArcade() {
 
   let activeCharId = "madoka";
   let rng = createSeededRng(0x20261118);
-
   let state = null;
 
   const resetRun = (charId = activeCharId) => {
@@ -61,13 +64,14 @@ function initArcade() {
       player: createPlayerState(charId, ARENA_W, ARENA_H),
       shots: [],
       familiars: [],
+      enemyBullets: [],
       griefSeeds: [],
+      boss: null,
     };
   };
 
   resetRun("madoka");
 
-  // Input state: Keyboard + Direct Canvas Touch/Pointer Drag
   const keys = { up: false, down: false, left: false, right: false };
   let pointerActive = false;
   let pointerTargetX = ARENA_W / 2;
@@ -109,33 +113,32 @@ function initArcade() {
     pointerActive = false;
   });
 
-  // Character Roster Switcher Buttons
   document.querySelectorAll("[data-roster]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const charId = btn.getAttribute("data-roster");
-      resetRun(charId);
+      resetRun(btn.getAttribute("data-roster"));
     });
   });
 
-  // Character-Specific Ultimate Abilities (Costs 100 Hope Mana)
   const triggerUltimate = () => {
     const p = state.player;
     if (state.gameOver || p.hopeMana < 100) return;
     p.hopeMana = 0;
+    audio.playUltimate();
+
+    // Clear enemy bullets on any Ultimate activation
+    state.enemyBullets = [];
 
     if (p.charId === "madoka") {
-      // Law of Cycles: Purifies all active familiars on screen into Grief Seeds
       for (const fam of state.familiars) {
         state.score += fam.scoreValue;
         state.griefSeeds.push(spawnGriefSeed(fam.xQ16, fam.yQ16, fam.isElite));
       }
       state.familiars = [];
+      if (state.boss) state.boss.hp -= 350;
       p.despairCorrupt = Math.max(0, p.despairCorrupt - 40);
     } else if (p.charId === "homura") {
-      // Shield Time-Stop: Freezes all familiars for 240 ticks (4 seconds)
       p.timeStopTicks = 240;
     } else if (p.charId === "mami") {
-      // Tiro Finale: Fires a wide horizontal wall of 11 heavy cannon rounds
       for (let i = -5; i <= 5; i++) {
         state.shots.push({
           xQ16: p.xQ16 + toQ16(i * 18),
@@ -148,8 +151,8 @@ function initArcade() {
         });
       }
     } else if (p.charId === "kyoko") {
-      // Rosso Fantasma: Clears nearby enemies + grants 3 seconds of barrier invulnerability
       p.invulnTicks = 180;
+      if (state.boss) state.boss.hp -= 260;
       state.familiars = state.familiars.filter((fam) => {
         const dist = Math.hypot(fromQ16(fam.xQ16 - p.xQ16), fromQ16(fam.yQ16 - p.yQ16));
         if (dist < 190) {
@@ -159,7 +162,6 @@ function initArcade() {
         return true;
       });
     } else if (p.charId === "sayaka") {
-      // Fortissimo Surge: Restores +50 Soul Gem Purity HP and vents 30% Despair
       p.purityHp = Math.min(p.maxPurityHp, p.purityHp + 50);
       p.despairCorrupt = Math.max(0, p.despairCorrupt - 30);
     }
@@ -167,7 +169,6 @@ function initArcade() {
 
   document.getElementById("btn-ultimate")?.addEventListener("click", triggerUltimate);
 
-  // Rebellion Overdrive Toggle (2x Damage, 2x Despair Corruption Rate)
   document.getElementById("btn-overdrive")?.addEventListener("click", () => {
     if (state.gameOver) return;
     state.player.rebellionOverdrive = !state.player.rebellionOverdrive;
@@ -177,7 +178,12 @@ function initArcade() {
     resetRun(activeCharId);
   });
 
-  // Single 60 Hz Simulation Step
+  const audioBtn = document.getElementById("btn-audio");
+  audioBtn?.addEventListener("click", () => {
+    const muted = audio.toggleMute();
+    audioBtn.textContent = muted ? "Audio: Muted" : "Audio: SFX Active";
+  });
+
   function stepSimulation() {
     if (state.gameOver) return;
     state.tick++;
@@ -189,15 +195,13 @@ function initArcade() {
     if (p.timeStopTicks > 0) p.timeStopTicks--;
     if (p.cooldownTicks > 0) p.cooldownTicks--;
 
-    // 1. Compute Player Velocity from Touch Drag or Keyboard
+    // 1. Player Movement
     let dirX = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
     let dirY = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
 
     if (pointerActive && dirX === 0 && dirY === 0) {
-      const curX = fromQ16(p.xQ16);
-      const curY = fromQ16(p.yQ16);
-      const dx = pointerTargetX - curX;
-      const dy = pointerTargetY - curY;
+      const dx = pointerTargetX - fromQ16(p.xQ16);
+      const dy = pointerTargetY - fromQ16(p.yQ16);
       if (Math.abs(dx) > 4) dirX = Math.sign(dx);
       if (Math.abs(dy) > 4) dirY = Math.sign(dy);
     }
@@ -214,15 +218,33 @@ function initArcade() {
     if (p.cooldownTicks === 0) {
       state.shots.push(...spawnPlayerShots(p));
       p.cooldownTicks = spec.fireCooldownTicks;
+      if (state.tick % (spec.fireCooldownTicks * 2) === 0) {
+        audio.playShot();
+      }
     }
 
-    // 3. Spawn Witch Familiar Waves
-    const spawnInterval = Math.max(18, 52 - state.wave * 4);
-    if (state.tick % spawnInterval === 0) {
-      state.familiars.push(spawnFamiliar(rng, state.wave, ARENA_W));
+    // 3. Boss Witch vs Standard Familiar Wave Spawning
+    if (state.boss) {
+      if (p.timeStopTicks === 0) {
+        const nextBoss = stepPositionQ16(state.boss);
+        const bx = fromQ16(nextBoss.xQ16);
+        if (bx < 56 || bx > ARENA_W - 56) {
+          nextBoss.vxQ16 = -nextBoss.vxQ16;
+        }
+        state.boss = nextBoss;
+
+        if (state.tick % state.boss.fireInterval === 0) {
+          state.enemyBullets.push(...spawnBossProjectiles(state.boss));
+        }
+      }
+    } else {
+      const spawnInterval = Math.max(18, 52 - state.wave * 4);
+      if (state.tick % spawnInterval === 0) {
+        state.familiars.push(spawnFamiliar(rng, state.wave, ARENA_W));
+      }
     }
 
-    // Passive Despair accumulation (doubled under Rebellion Overdrive)
+    // Passive Despair accumulation
     if (state.tick % 45 === 0) {
       p.despairCorrupt = Math.min(100, p.despairCorrupt + (p.rebellionOverdrive ? 2 : 1));
       if (p.despairCorrupt >= 100) {
@@ -230,62 +252,98 @@ function initArcade() {
       }
     }
 
-    // 4. Advance Projectiles & Filter Off-Screen
+    // 4. Advance Projectiles & Enemy Bullets
     state.shots = state.shots
       .map(stepPositionQ16)
       .filter((s) => fromQ16(s.yQ16) > -20 && fromQ16(s.xQ16) > -20 && fromQ16(s.xQ16) < ARENA_W + 20);
 
-    // 5. Advance Familiars (Frozen during Homura Time-Stop)
     if (p.timeStopTicks === 0) {
       state.familiars = state.familiars
         .map((fam) => {
           const next = stepPositionQ16(fam);
           const fx = fromQ16(next.xQ16);
-          if (fx < 20 || fx > ARENA_W - 20) {
-            next.vxQ16 = -next.vxQ16;
-          }
+          if (fx < 20 || fx > ARENA_W - 20) next.vxQ16 = -next.vxQ16;
           return next;
         })
         .filter((fam) => fromQ16(fam.yQ16) < ARENA_H + 30);
+
+      state.enemyBullets = state.enemyBullets
+        .map(stepPositionQ16)
+        .filter(
+          (eb) =>
+            fromQ16(eb.yQ16) > -20 &&
+            fromQ16(eb.yQ16) < ARENA_H + 20 &&
+            fromQ16(eb.xQ16) > -20 &&
+            fromQ16(eb.xQ16) < ARENA_W + 20
+        );
     }
 
-    // 6. Advance Grief Seeds
     state.griefSeeds = state.griefSeeds
       .map(stepPositionQ16)
       .filter((seed) => fromQ16(seed.yQ16) < ARENA_H + 20);
 
-    // 7. Shot vs Familiar Collisions
+    // 5. Player Shots vs Boss & Familiars
     const survivingShots = [];
     for (const shot of state.shots) {
       let hit = false;
-      for (const fam of state.familiars) {
-        if (fam.hp > 0 && checkCircleCollisionQ16(shot, fam)) {
-          fam.hp -= shot.damage;
-          hit = true;
-          if (fam.hp <= 0) {
-            state.score += fam.scoreValue;
-            state.killsInWave++;
-            p.hopeMana = Math.min(p.maxHopeMana, p.hopeMana + (fam.isElite ? 16 : 6));
-            if (fam.isElite || (rng() % 3 === 0)) {
-              state.griefSeeds.push(spawnGriefSeed(fam.xQ16, fam.yQ16, fam.isElite));
-            }
-            if (state.killsInWave >= 8 + state.wave * 3) {
-              state.wave++;
-              state.killsInWave = 0;
-            }
-          }
-          break;
-        }
+
+      if (state.boss && state.boss.hp > 0 && checkCircleCollisionQ16(shot, state.boss)) {
+        state.boss.hp -= shot.damage;
+        hit = true;
+        p.hopeMana = Math.min(p.maxHopeMana, p.hopeMana + 1);
       }
-      if (!hit) survivingShots.push(shot);
-    }
-    state.shots = survivingShots;
-    state.familiars = state.familiars.filter((f) => f.hp > 0);
 
-    // 8. Player vs Grief Seed Pickups
-    state.griefSeeds = state.griefSeeds.filter((seed) => {
-      if (checkCircleCollisionQ16(p, seed)) {
-
+      if (!hit) {
+        for (const fam of state.familiars) {
+          if (fam.hp > 0 && checkCircleCollisionQ16(shot, fam)) {
+            fam.hp -= shot.damage;
+            hit = true;
+            if (fam.hp <= 0) {
+              audio.playPop();
+state.score += fam.scoreValue;
+state.killsInWave++;
+p.hopeMana = Math.min(p.maxHopeMana, p.hopeMana + (fam.isElite ? 16 : 6));
+if (fam.isElite || rng() % 3 === 0) {
+state.griefSeeds.push(spawnGriefSeed(fam.xQ16, fam.yQ16, fam.isElite));
+}
+}
+break;
+}
+}
+}
+if (!hit) survivingShots.push(shot);
+}
+state.shots = survivingShots;
+state.familiars = state.familiars.filter((f) => f.hp > 0);
+// Check Wave Advancement & Boss Trigger (Every 5 Waves)
+if (!state.boss && state.killsInWave >= 8 + state.wave * 3) {
+state.wave++;
+state.killsInWave = 0;
+if (state.wave % 5 === 0) {
+state.boss = spawnBossWitch(state.wave, ARENA_W);
+state.familiars = [];
+audio.playBossWarning();
+}
+}
+// Check Boss Defeat & Major Grief Seed Shower
+if (state.boss && state.boss.hp <= 0) {
+const defeated = state.boss;
+state.score += defeated.scoreValue;
+audio.playUltimate();
+for (let i = -2; i <= 2; i++) {
+state.griefSeeds.push(
+spawnGriefSeed(defeated.xQ16 + toQ16(i * 22), defeated.yQ16, true)
+);
+}
+state.boss = null;
+state.enemyBullets = [];
+state.wave++;
+state.killsInWave = 0;
+}
+// 6. Player vs Grief Seed Pickups
+state.griefSeeds = state.griefSeeds.filter((seed) => {
+if (checkCircleCollisionQ16(p, seed)) {
+audio.playSeed();
 p.despairCorrupt = Math.max(0, p.despairCorrupt - seed.despairClear);
 p.hopeMana = Math.min(p.maxHopeMana, p.hopeMana + seed.hopeGain);
 p.purityHp = Math.min(p.maxPurityHp, p.purityHp + 5);
@@ -294,16 +352,29 @@ return false;
 }
 return true;
 });
-// 9. Player vs Familiar Collisions
+// 7. Player vs Familiars & Enemy Bullets
 if (p.invulnTicks === 0 && p.timeStopTicks === 0) {
 for (const fam of state.familiars) {
 if (checkCircleCollisionQ16(p, fam)) {
+audio.playHit();
 p.purityHp = Math.max(0, p.purityHp - (fam.isElite ? 28 : 16));
 p.despairCorrupt = Math.min(100, p.despairCorrupt + 10);
 p.invulnTicks = 60;
 break;
 }
 }
+}
+if (p.invulnTicks === 0 && p.timeStopTicks === 0) {
+state.enemyBullets = state.enemyBullets.filter((eb) => {
+if (checkCircleCollisionQ16(p, eb)) {
+audio.playHit();
+p.purityHp = Math.max(0, p.purityHp - eb.damage);
+p.despairCorrupt = Math.min(100, p.despairCorrupt + 8);
+p.invulnTicks = 45;
+return false;
+}
+return true;
+});
 }
 if (p.purityHp <= 0) {
 state.gameOver = true;
